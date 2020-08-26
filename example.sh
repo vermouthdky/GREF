@@ -1,1 +1,0 @@
-python main.py --cuda_num=-0 --type_norm='group' --train --type_model='GAT' --dataset='Pubmed' --miss_rate=1.

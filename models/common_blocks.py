@@ -27,13 +27,8 @@ class act_map(torch.nn.Module):
     def forward(self, x):
         return self.f(x)
 
-# class batch_norm(torch.nn.Module):
-#     def __init__(self, dim_hidden):
-#         super(batch_norm, self).__init__()
-#         self.bn = torch.nn.BatchNorm1d(dim_hidden, momentum=0.5)
-#
-#     def forward(self, x):
-#         return self.bn(x)
+
+
 
 class batch_norm(torch.nn.Module):
     def __init__(self, dim_hidden, type_norm, skip_connect=False, num_groups=1, skip_weight=0.005):

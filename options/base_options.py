@@ -122,6 +122,8 @@ class BaseOptions():
         parser.add_argument('--batch_normal', default=False, action="store_true")
         parser.add_argument('--early_stop', default=False, action="store_true")
         parser.add_argument('--num_neighbors', type=float, default=1.0)
+        parser.add_argument('--threshold', type=float, default=0.05)
+        parser.add_argument('--alpha', type=float, default=0.1)
 
         # mutual information
         parser.add_argument('--num_bins', type=int, default=10)
