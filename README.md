@@ -1,2 +1,2 @@
-# non-local-GCN
+# non local GCN
 Non Local Graph Convolutional Network
