@@ -134,10 +134,6 @@ class trainer(object):
         self.model.to(self.device)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        # self.var_noise = args.var_noise
-        # self.seed = args.random_seed
-        # self.type_norm = args.type_norm
-        # self.skip_weight = args.skip_weight
 
         self.loss_weight = args.loss_weight  # 0.0001
 
@@ -255,9 +251,10 @@ class trainer(object):
             os.makedirs(filedir)
 
         alpha = str(self.model.alpha)
+        num_layers = int(self.model.num_layers)
 
         filename = f'{filetype}_{type_model}' \
-                    f'Alpha{alpha}.pth.tar'
+                    f'L{num_layers}Alpha{alpha}.pth.tar'
 
         filename = os.path.join(filedir, filename)
         return filename
@@ -272,6 +269,7 @@ class trainer(object):
         if len(log) == 0:
             log['acc_train'], log['acc_valid'], log['acc_test'] = [], [], []
             log['alpha'] = []
+            log['L'] = []
 
         for key in log.keys():
             if len(log[key]) == 0:

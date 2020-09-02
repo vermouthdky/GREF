@@ -102,7 +102,7 @@ class BaseOptions():
 
         # build up the supernet hyperparameter
         parser.add_argument('--type_model', type=str, default="GCN")
-        parser.add_argument('--num_layers', type=int, default=3)
+        parser.add_argument('--num_layers', type=int, default=2)
         parser.add_argument('--batch_size', type=int, default=64)
         parser.add_argument("--epochs", type=int, default=1000,
                             help="number of training the one shot model")
@@ -123,7 +123,8 @@ class BaseOptions():
         parser.add_argument('--early_stop', default=False, action="store_true")
         parser.add_argument('--num_neighbors', type=float, default=1.0)
         parser.add_argument('--threshold', type=float, default=0.05)
-        parser.add_argument('--alpha', type=float, default=0.1)
+        parser.add_argument('--alpha', type=float, default=1.0)
+        parser.add_argument('--temperature', type=float, default=0.001, help='temperature for sigmoid in adj matrix sparsification')
 
         # mutual information
         parser.add_argument('--num_bins', type=int, default=10)
