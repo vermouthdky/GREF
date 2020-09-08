@@ -26,11 +26,11 @@ from sklearn.manifold import TSNE, Isomap
 from sklearn.decomposition import PCA
 import sklearn
 
-
+from entropy_loss import EntropyLoss
 def load_data(dataset="Cora"):
     path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', dataset)
     if dataset in ["Cora", "Citeseer", "Pubmed"]:
-        data = Planetoid(path, dataset, transform=T.NormalizeFeatures())[0]
+        data = Planetoid(path, dataset, split='public', transform=T.NormalizeFeatures())[0]
         num_nodes = data.x.size(0)
         edge_index, _ = remove_self_loops(data.edge_index)
         edge_index = add_self_loops(edge_index, num_nodes=num_nodes)
@@ -81,17 +81,6 @@ def load_ppi_data():
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
     return [train_loader, val_loader, test_loader]
 
-
-def remove_feature(data, miss_rate):
-    num_nodes = data.x.size(0)
-    erasing_pool = torch.arange(num_nodes)[~data.train_mask]
-    size = int(len(erasing_pool) * miss_rate)
-    idx_erased = np.random.choice(erasing_pool, size=size, replace=False)
-    x = data.x
-    x[idx_erased] = 0.
-    return x
-
-
 def evaluate(output, labels, mask):
     _, indices = torch.max(output, dim=1)
     correct = torch.sum(indices[mask] == labels[mask])
@@ -109,16 +98,14 @@ class trainer(object):
             self.loss_fn = torch.nn.BCEWithLogitsLoss()
         else:
             raise Exception(f'the dataset of {self.dataset} has not been implemented')
-
-        self.miss_rate = args.miss_rate
-        if self.miss_rate > 0.:
-            self.data.x = remove_feature(self.data, self.miss_rate)
+        self.entropy_loss = EntropyLoss()
 
         self.type_model = args.type_model
         self.epochs = args.epochs
         self.grad_clip = args.grad_clip
         self.weight_decay = args.weight_decay
         self.alpha = args.alpha
+        self.lamb = args.lamb
         if self.type_model == 'GCN':
             self.model = GCN(args)
         elif self.type_model == 'GAT':
@@ -175,9 +162,9 @@ class trainer(object):
         self.model.train()
         loss = 0.
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
-            logits = self.model(self.data.x, self.data.edge_index)
+            logits, adj_new= self.model(self.data.x, self.data.edge_index)
             logits = F.log_softmax(logits[self.data.train_mask], 1)
-            loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
+            loss = self.loss_fn(logits, self.data.y[self.data.train_mask]) + self.alpha*self.lamb*self.entropy_loss(adj_new)
         elif self.dataset in ['PPI']:
             for data in self.data[0]:
                 num_nodes = data.x.size(0)
@@ -186,8 +173,7 @@ class trainer(object):
                 if isinstance(data.edge_index, tuple):
                     data.edge_index = data.edge_index[0]
                 logits = self.model(data.x.to(self.device), data.edge_index.to(self.device))
-                loss += self.loss_fn(logits, data.y.to(self.device))
-        else:
+                loss += self.loss_fn(logits, data.y.to(self.device)) + self.lamb*self.entropy_loss(adj_new)
             raise Exception(f'the dataset of {self.dataset} has not been implemented')
 
         self.optimizer.zero_grad()
@@ -203,7 +189,7 @@ class trainer(object):
         # torch.cuda.empty_cache()
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
             with torch.no_grad():
-                logits = self.model(self.data.x, self.data.edge_index)
+                logits, _ = self.model(self.data.x, self.data.edge_index)
             logits = F.log_softmax(logits, 1)
             acc_train = evaluate(logits, self.data.y, self.data.train_mask)
             acc_valid = evaluate(logits, self.data.y, self.data.val_mask)
@@ -220,7 +206,7 @@ class trainer(object):
                     if isinstance(data.edge_index, tuple):
                         data.edge_index = data.edge_index[0]
                     with torch.no_grad():
-                        logits = self.model(data.x.to(self.device), data.edge_index.to(self.device))
+                        logits, _ = self.model(data.x.to(self.device), data.edge_index.to(self.device))
                     pred = (logits > 0).float().cpu()
                     micro_f1 = metrics.f1_score(data.y, pred, average='micro')
                     total_micro_f1 += micro_f1
