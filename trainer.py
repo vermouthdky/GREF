@@ -26,7 +26,9 @@ from sklearn.manifold import TSNE, Isomap
 from sklearn.decomposition import PCA
 import sklearn
 
-from entropy_loss import EntropyLoss
+import seaborn as sns
+
+# from entropy_loss import EntropyLoss
 def load_data(dataset="Cora"):
     path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', dataset)
     if dataset in ["Cora", "Citeseer", "Pubmed"]:
@@ -98,7 +100,8 @@ class trainer(object):
             self.loss_fn = torch.nn.BCEWithLogitsLoss()
         else:
             raise Exception(f'the dataset of {self.dataset} has not been implemented')
-        self.entropy_loss = EntropyLoss()
+
+        self.entropy_loss = torch.nn.functional.binary_cross_entropy_with_logits
 
         self.type_model = args.type_model
         self.epochs = args.epochs
@@ -106,6 +109,8 @@ class trainer(object):
         self.weight_decay = args.weight_decay
         self.alpha = args.alpha
         self.lamb = args.lamb
+        self.num_classes = args.num_classes
+
         if self.type_model == 'GCN':
             self.model = GCN(args)
         elif self.type_model == 'GAT':
@@ -124,9 +129,9 @@ class trainer(object):
 
         self.loss_weight = args.loss_weight  # 0.0001
 
-    def train_net(self):
+    def train_net(self, epoch):
         # try:
-        loss_train = self.run_trainSet()
+        loss_train = self.run_trainSet(epoch)
         acc_train, acc_valid, acc_test = self.run_testSet()
         return loss_train, acc_train, acc_valid, acc_test
         
@@ -134,7 +139,7 @@ class trainer(object):
     def train(self):
         best_acc = 0
         for epoch in range(self.epochs):
-            loss_train, acc_train, acc_valid, acc_test = self.train_net()
+            loss_train, acc_train, acc_valid, acc_test = self.train_net(epoch)
             print('Epoch: {:02d}, Loss: {:.4f}, val_acc: {:.4f}, test_acc:{:.4f}'.format(epoch, loss_train,
                                                                                          acc_valid, acc_test))
             if best_acc < acc_valid:
@@ -158,13 +163,42 @@ class trainer(object):
 
         self.save_log(self.log, self.type_model, self.dataset)
 
-    def run_trainSet(self):
+    def run_trainSet(self, epoch):
         self.model.train()
         loss = 0.
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
             logits, adj_new= self.model(self.data.x, self.data.edge_index)
             logits = F.log_softmax(logits[self.data.train_mask], 1)
-            loss = self.loss_fn(logits, self.data.y[self.data.train_mask]) + self.alpha*self.lamb*self.entropy_loss(adj_new)
+            loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
+
+            # L1 regularization for matrix sparsification
+            # loss += 1e-6*torch.norm(adj_new, 1)
+
+            # label guiding loss
+            mask = self.data.train_mask
+            adj_new = adj_new[mask, :][:, mask]
+            label = torch.zeros(len(self.data.y[mask]), self.num_classes).to(self.device)
+            label = label.scatter_(1, torch.unsqueeze(self.data.y[mask], dim=1), 1)
+            adj_label = torch.matmul(label, label.t())
+            loss += self.lamb*self.entropy_loss(adj_new, adj_label)
+
+            if epoch % 200 == 0:
+                value_max = torch.max(adj_new).cpu()
+                value_min = torch.min(adj_new).cpu()
+                print(f'value_max : {value_max}')
+                print(f'value_min : {value_min}')
+
+                heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
+                fig = heat_map.get_figure()
+                fig.savefig(self.figurename(f'adj_new{epoch}.png'))
+                plt.clf()
+            
+            if epoch % 1000 == 0:
+                heat_map = sns.heatmap(adj_label.cpu().detach().numpy())
+                fig = heat_map.get_figure()
+                fig.savefig(self.figurename(f'adj_label.png'))
+                plt.clf()
+
         elif self.dataset in ['PPI']:
             for data in self.data[0]:
                 num_nodes = data.x.size(0)
@@ -173,7 +207,7 @@ class trainer(object):
                 if isinstance(data.edge_index, tuple):
                     data.edge_index = data.edge_index[0]
                 logits = self.model(data.x.to(self.device), data.edge_index.to(self.device))
-                loss += self.loss_fn(logits, data.y.to(self.device)) + self.lamb*self.entropy_loss(adj_new)
+                loss += self.loss_fn(logits, data.y.to(self.device))
             raise Exception(f'the dataset of {self.dataset} has not been implemented')
 
         self.optimizer.zero_grad()
@@ -244,6 +278,14 @@ class trainer(object):
 
         filename = os.path.join(filedir, filename)
         return filename
+
+    def figurename(self, figure, filetype='figures', dataset='Cora'):
+        filedir = f'./{filetype}/{dataset}'
+        if not os.path.exists(filedir):
+            os.makedirs(filedir)
+
+        filename = figure
+        return os.path.join(filedir, filename)
     
     def load_log(self, type_model='GCN',  dataset='PPI', load=True):
         log = {}

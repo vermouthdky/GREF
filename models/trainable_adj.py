@@ -14,32 +14,31 @@ class TAdj(nn.Module):
         self.temperature = temperature
         self.threshold = threshold
 
-        self.W_theta = nn.Linear(self.num_feats, self.dim_hidden, bias=False)
-        self.W_phi = nn.Linear(self.num_feats, self.dim_hidden, bias=False)
-        self.activation = act_map('relu')
+        self.W_theta = nn.Linear(self.num_feats, self.dim_hidden, bias=True)
+        self.W_phi = nn.Linear(self.num_feats, self.dim_hidden, bias=True)
+        self.activation = act_map('leaky_relu')
         
     def forward(self, X, adj):
 
         X_theta = self.W_theta(X)
         X_theta = self.activation(X_theta)
 
-        X_phi = self.W_phi(X)
-        X_phi = self.activation(X_phi)
+        # X_phi = self.W_phi(X)
+        # X_phi = self.activation(X_phi)
 
-        A = torch.matmul(X_theta, X_phi.t())
-
-        # self.num_nodes = X_theta.size(dim=0)
+        A = torch.matmul(X_theta, X_theta.t())
         # A = X_theta + X_phi.t()
 
-        A = A/self.temperature
+        A = F.tanh(A)
+        A_new = F.threshold(A, self.threshold, 0.)
 
-        # A = F.tanh(A/self.temperature)
-        # A = F.threshold(A, self.threshold, 0.)
-        
-        # A = F.softmax(A/self.temperature, dim=0)
+        # random selection with a mask
+        # num_nodes = A.size(0)
+        # mask = torch.cuda.FloatTensor(num_nodes, num_nodes).uniform_() > 0.6
+        # A_new = A*mask
 
         A_orig = adj
         A_orig = torch.squeeze(A_orig, dim=0)
-        P = A_orig + self.alpha * A
+        P = A_orig + self.alpha * A_new
 
         return P, A
