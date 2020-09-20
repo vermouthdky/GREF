@@ -5,7 +5,7 @@ from models.common_blocks import act_map
 from torch_geometric.nn.inits import glorot, zeros
 from models.trainable_adj import TAdj
 import torch
-from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse
+from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse, dropout_adj
 import torch.nn.functional as F
 
 class NLGCN(nn.Module):
@@ -27,9 +27,10 @@ class NLGCN(nn.Module):
         self.layers_GCN = nn.ModuleList([])
         self.layers_DenseGCN = nn.ModuleList([])
         self.layers_activation = nn.ModuleList([])
-
         self.layer_linear = nn.Linear(self.num_feats, self.dim_hidden)
-        self.TAdj = TAdj(self.dim_hidden, self.dim_hidden, self.alpha, self.temperature, self.threshold)
+        self.layers_TAdj = nn.ModuleList([])
+
+        self.TAdj = TAdj(self.dim_hidden, self.dim_hidden, self.alpha, self.temperature, self.threshold, self.training)
         
         if self.num_layers == 1:
             self.layers_DenseGCN.append(DenseGCNConv(self.num_feats, self.num_classes, improved=True, bias=False))
@@ -44,6 +45,8 @@ class NLGCN(nn.Module):
                 
         for i in range(self.num_layers):
             self.layers_activation.append(act_map(self.activation))
+            
+        # self.layers_TAdj.append(TAdj(self.num_feats, self.dim_hidden, self.alpha, self.temperature, self.threshold))
 
     def forward(self, x, edge_index):
 
@@ -54,8 +57,13 @@ class NLGCN(nn.Module):
             
             if i == 1:
                 adj, adj_new = self.TAdj(x, adj)
-            # if i == 0 or i == self.num_layers-1:
-            #     x = F.dropout(x, p=self.dropout, training=self.training)
+
+            if i == 0 or i == self.num_layers-1:
+                x = F.dropout(x, p=self.dropout, training=self.training)
+                # edge_index, edge_attribute = dense_to_sparse(adj)
+                # edge_index, edge_attribute = dropout_adj(edge_index, edge_attribute, p=self.dropout, force_undirected=True, training=self.training)
+                # adj = to_dense_adj(edge_index, edge_attr=edge_attribute)
+                # adj = torch.squeeze(adj, dim=0)
             
             x = self.layers_DenseGCN[i](x, adj)
             x = self.layers_activation[i](x)

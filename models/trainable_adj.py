@@ -6,17 +6,17 @@ from models.common_blocks import act_map
 # trainable adjacent matrix
 
 class TAdj(nn.Module):
-    def __init__(self, num_feats, dim_hidden, alpha, temperature, threshold):
+    def __init__(self, num_feats, dim_hidden, alpha, temperature, threshold, training):
         super(TAdj, self).__init__()
         self.num_feats = num_feats
         self.dim_hidden = dim_hidden
         self.alpha = alpha
         self.temperature = temperature
         self.threshold = threshold
-
+        self.training = training
         self.W_theta = nn.Linear(self.num_feats, self.dim_hidden, bias=True)
         self.W_phi = nn.Linear(self.num_feats, self.dim_hidden, bias=True)
-        self.activation = act_map('leaky_relu')
+        self.activation = act_map('relu')
         
     def forward(self, X, adj):
 
@@ -31,11 +31,6 @@ class TAdj(nn.Module):
 
         A = F.tanh(A)
         A_new = F.threshold(A, self.threshold, 0.)
-
-        # random selection with a mask
-        # num_nodes = A.size(0)
-        # mask = torch.cuda.FloatTensor(num_nodes, num_nodes).uniform_() > 0.6
-        # A_new = A*mask
 
         A_orig = adj
         A_orig = torch.squeeze(A_orig, dim=0)

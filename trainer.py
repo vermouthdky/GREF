@@ -131,7 +131,7 @@ class trainer(object):
 
     def train_net(self, epoch):
         # try:
-        loss_train = self.run_trainSet(epoch)
+        loss_train= self.run_trainSet(epoch)
         acc_train, acc_valid, acc_test = self.run_testSet()
         return loss_train, acc_train, acc_valid, acc_test
         
@@ -141,12 +141,13 @@ class trainer(object):
         for epoch in range(self.epochs):
             loss_train, acc_train, acc_valid, acc_test = self.train_net(epoch)
             print('Epoch: {:02d}, Loss: {:.4f}, val_acc: {:.4f}, test_acc:{:.4f}'.format(epoch, loss_train,
-                                                                                         acc_valid, acc_test))
+                                                                                        acc_valid, acc_test))
             if best_acc < acc_valid:
                 best_acc = acc_valid
                 self.model.cpu()
                 self.save_model(self.type_model, self.dataset)
                 self.model.to(self.device)
+            
 
         self.log = self.load_log(type_model=self.type_model, dataset=self.dataset, load=True)
         state_dict = self.load_model(self.type_model, self.dataset)
@@ -167,7 +168,7 @@ class trainer(object):
         self.model.train()
         loss = 0.
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
-            logits, adj_new= self.model(self.data.x, self.data.edge_index)
+            logits, adj= self.model(self.data.x, self.data.edge_index)
             logits = F.log_softmax(logits[self.data.train_mask], 1)
             loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
@@ -176,7 +177,7 @@ class trainer(object):
 
             # label guiding loss
             mask = self.data.train_mask
-            adj_new = adj_new[mask, :][:, mask]
+            adj_new = adj[mask, :][:, mask]
             label = torch.zeros(len(self.data.y[mask]), self.num_classes).to(self.device)
             label = label.scatter_(1, torch.unsqueeze(self.data.y[mask], dim=1), 1)
             adj_label = torch.matmul(label, label.t())
