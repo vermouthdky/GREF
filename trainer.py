@@ -26,11 +26,17 @@ from sklearn.manifold import TSNE, Isomap
 from sklearn.decomposition import PCA
 import sklearn
 
+import seaborn as sns
 
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.tensorboard import SummaryWriter
+
+# from entropy_loss import EntropyLoss
 def load_data(dataset="Cora"):
     path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', dataset)
     if dataset in ["Cora", "Citeseer", "Pubmed"]:
-        data = Planetoid(path, dataset, transform=T.NormalizeFeatures())[0]
+        data = Planetoid(path, dataset, split='public', transform=T.NormalizeFeatures())[0]
         num_nodes = data.x.size(0)
         edge_index, _ = remove_self_loops(data.edge_index)
         edge_index = add_self_loops(edge_index, num_nodes=num_nodes)
@@ -81,17 +87,6 @@ def load_ppi_data():
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
     return [train_loader, val_loader, test_loader]
 
-
-def remove_feature(data, miss_rate):
-    num_nodes = data.x.size(0)
-    erasing_pool = torch.arange(num_nodes)[~data.train_mask]
-    size = int(len(erasing_pool) * miss_rate)
-    idx_erased = np.random.choice(erasing_pool, size=size, replace=False)
-    x = data.x
-    x[idx_erased] = 0.
-    return x
-
-
 def evaluate(output, labels, mask):
     _, indices = torch.max(output, dim=1)
     correct = torch.sum(indices[mask] == labels[mask])
@@ -110,15 +105,16 @@ class trainer(object):
         else:
             raise Exception(f'the dataset of {self.dataset} has not been implemented')
 
-        self.miss_rate = args.miss_rate
-        if self.miss_rate > 0.:
-            self.data.x = remove_feature(self.data, self.miss_rate)
+        self.entropy_loss = torch.nn.functional.binary_cross_entropy_with_logits
 
         self.type_model = args.type_model
         self.epochs = args.epochs
         self.grad_clip = args.grad_clip
         self.weight_decay = args.weight_decay
         self.alpha = args.alpha
+        self.lamb = args.lamb
+        self.num_classes = args.num_classes
+
         if self.type_model == 'GCN':
             self.model = GCN(args)
         elif self.type_model == 'GAT':
@@ -134,16 +130,14 @@ class trainer(object):
         self.model.to(self.device)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        # self.var_noise = args.var_noise
-        # self.seed = args.random_seed
-        # self.type_norm = args.type_norm
-        # self.skip_weight = args.skip_weight
 
         self.loss_weight = args.loss_weight  # 0.0001
 
-    def train_net(self):
+        self.writer = SummaryWriter('runs/NLGCN')
+
+    def train_net(self, epoch):
         # try:
-        loss_train = self.run_trainSet()
+        loss_train= self.run_trainSet(epoch)
         acc_train, acc_valid, acc_test = self.run_testSet()
         return loss_train, acc_train, acc_valid, acc_test
         
@@ -151,15 +145,22 @@ class trainer(object):
     def train(self):
         best_acc = 0
         for epoch in range(self.epochs):
-            loss_train, acc_train, acc_valid, acc_test = self.train_net()
+            loss_train, acc_train, acc_valid, acc_test = self.train_net(epoch)
             print('Epoch: {:02d}, Loss: {:.4f}, val_acc: {:.4f}, test_acc:{:.4f}'.format(epoch, loss_train,
-                                                                                         acc_valid, acc_test))
-            if best_acc < acc_valid:
+                                                                                        acc_valid, acc_test))
+            
+            if epoch % 5 == 4:
+                self.writer.add_scalar('Loss/train', loss_train, epoch)
+                self.writer.add_scalar('Accuracy/train', acc_train, epoch)
+                self.writer.add_scalar('Accuracy/test', acc_test, epoch)
+
+            if best_acc <= acc_valid:
                 best_acc = acc_valid
                 self.model.cpu()
                 self.save_model(self.type_model, self.dataset)
                 self.model.to(self.device)
-
+            
+        self.writer.close()
         self.log = self.load_log(type_model=self.type_model, dataset=self.dataset, load=True)
         state_dict = self.load_model(self.type_model, self.dataset)
         self.model.load_state_dict(state_dict)
@@ -175,13 +176,44 @@ class trainer(object):
 
         self.save_log(self.log, self.type_model, self.dataset)
 
-    def run_trainSet(self):
+    def run_trainSet(self, epoch):
         self.model.train()
         loss = 0.
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
-            logits = self.model(self.data.x, self.data.edge_index)
-            logits = F.log_softmax(logits[self.data.train_mask], 1)
-            loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
+            if self.type_model == 'NLGCN':
+                logits, adj= self.model(self.data.x, self.data.edge_index)
+                logits = F.log_softmax(logits[self.data.train_mask], 1)
+                loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
+
+                # label guiding loss
+                mask = self.data.train_mask
+                adj_new = adj[mask, :][:, mask]
+                label = torch.zeros(len(self.data.y[mask]), self.num_classes).to(self.device)
+                label = label.scatter_(1, torch.unsqueeze(self.data.y[mask], dim=1), 1)
+                adj_label = torch.matmul(label, label.t())
+                loss += self.lamb*self.entropy_loss(adj_new, adj_label)
+
+                if epoch % 200 == 0:
+                    value_max = torch.max(adj_new).cpu()
+                    value_min = torch.min(adj_new).cpu()
+                    print(f'value_max : {value_max}')
+                    print(f'value_min : {value_min}')
+
+                    heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
+                    fig = heat_map.get_figure()
+                    fig.savefig(self.figurename(f'adj_new{epoch}.png'))
+                    plt.clf()
+                
+                if epoch % 1000 == 0:
+                    heat_map = sns.heatmap(adj_label.cpu().detach().numpy())
+                    fig = heat_map.get_figure()
+                    fig.savefig(self.figurename(f'adj_label.png'))
+                    plt.clf()
+            else:
+                logits, adj= self.model(self.data.x, self.data.edge_index)
+                logits = F.log_softmax(logits[self.data.train_mask], 1)
+                loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
+
         elif self.dataset in ['PPI']:
             for data in self.data[0]:
                 num_nodes = data.x.size(0)
@@ -191,7 +223,6 @@ class trainer(object):
                     data.edge_index = data.edge_index[0]
                 logits = self.model(data.x.to(self.device), data.edge_index.to(self.device))
                 loss += self.loss_fn(logits, data.y.to(self.device))
-        else:
             raise Exception(f'the dataset of {self.dataset} has not been implemented')
 
         self.optimizer.zero_grad()
@@ -207,7 +238,7 @@ class trainer(object):
         # torch.cuda.empty_cache()
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
             with torch.no_grad():
-                logits = self.model(self.data.x, self.data.edge_index)
+                logits, _ = self.model(self.data.x, self.data.edge_index)
             logits = F.log_softmax(logits, 1)
             acc_train = evaluate(logits, self.data.y, self.data.train_mask)
             acc_valid = evaluate(logits, self.data.y, self.data.val_mask)
@@ -224,7 +255,7 @@ class trainer(object):
                     if isinstance(data.edge_index, tuple):
                         data.edge_index = data.edge_index[0]
                     with torch.no_grad():
-                        logits = self.model(data.x.to(self.device), data.edge_index.to(self.device))
+                        logits, _ = self.model(data.x.to(self.device), data.edge_index.to(self.device))
                     pred = (logits > 0).float().cpu()
                     micro_f1 = metrics.f1_score(data.y, pred, average='micro')
                     total_micro_f1 += micro_f1
@@ -255,12 +286,21 @@ class trainer(object):
             os.makedirs(filedir)
 
         alpha = str(self.model.alpha)
+        num_layers = int(self.model.num_layers)
 
         filename = f'{filetype}_{type_model}' \
-                    f'Alpha{alpha}.pth.tar'
+                    f'L{num_layers}Alpha{alpha}.pth.tar'
 
         filename = os.path.join(filedir, filename)
         return filename
+
+    def figurename(self, figure, filetype='figures', dataset='Cora'):
+        filedir = f'./{filetype}/{dataset}'
+        if not os.path.exists(filedir):
+            os.makedirs(filedir)
+
+        filename = figure
+        return os.path.join(filedir, filename)
     
     def load_log(self, type_model='GCN',  dataset='PPI', load=True):
         log = {}
@@ -272,6 +312,7 @@ class trainer(object):
         if len(log) == 0:
             log['acc_train'], log['acc_valid'], log['acc_test'] = [], [], []
             log['alpha'] = []
+            log['L'] = []
 
         for key in log.keys():
             if len(log[key]) == 0:
