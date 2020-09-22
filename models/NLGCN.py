@@ -30,7 +30,7 @@ class NLGCN(nn.Module):
         self.layer_linear = nn.Linear(self.num_feats, self.dim_hidden)
         self.layers_TAdj = nn.ModuleList([])
 
-        self.TAdj = TAdj(self.dim_hidden, self.dim_hidden, self.alpha, self.temperature, self.threshold, self.training)
+        self.TAdj = TAdj(self.num_feats, self.dim_hidden, self.alpha, self.temperature, self.threshold, self.training)
         
         if self.num_layers == 1:
             self.layers_DenseGCN.append(DenseGCNConv(self.num_feats, self.num_classes, improved=True, bias=False))
@@ -46,30 +46,28 @@ class NLGCN(nn.Module):
         for i in range(self.num_layers):
             self.layers_activation.append(act_map(self.activation))
             
-        # self.layers_TAdj.append(TAdj(self.num_feats, self.dim_hidden, self.alpha, self.temperature, self.threshold))
-
     def forward(self, x, edge_index):
 
         adj = to_dense_adj(edge_index)
         adj = torch.squeeze(adj, dim=0)
 
-        for i in range(self.num_layers):
-            
-            if i == 1:
-                adj, adj_new = self.TAdj(x, adj)
+        for i in range(self.num_layers):   
 
             if i == 0 or i == self.num_layers-1:
                 x = F.dropout(x, p=self.dropout, training=self.training)
-                # edge_index, edge_attribute = dense_to_sparse(adj)
-                # edge_index, edge_attribute = dropout_adj(edge_index, edge_attribute, p=self.dropout, force_undirected=True, training=self.training)
-                # adj = to_dense_adj(edge_index, edge_attr=edge_attribute)
-                # adj = torch.squeeze(adj, dim=0)
             
             x = self.layers_DenseGCN[i](x, adj)
             x = self.layers_activation[i](x)
             x = torch.squeeze(x, dim=0)
 
-        # adj_new = F.tanh(torch.matmul(x, x.t()))
+        adj_new = F.tanh(torch.matmul(x, x.t()))
+
+        # get the relations between supernodes and nodes
+        # adj_super = F.softmax(x, dim=1) # N x num_classes
+        # adj_new_upper = torch.cat((adj, adj_super), dim=1)
+        # adj_new_lower = torch.cat((adj_super.t(), torch.zeros(self.num_classes, self.num_classes)), dim=1)
+        # adj_new = torch.cat((adj_new_upper, adj_new_lower), dim=0) 
+            
         return x, adj_new
 
 

@@ -28,6 +28,10 @@ import sklearn
 
 import seaborn as sns
 
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.tensorboard import SummaryWriter
+
 # from entropy_loss import EntropyLoss
 def load_data(dataset="Cora"):
     path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'data', dataset)
@@ -129,6 +133,8 @@ class trainer(object):
 
         self.loss_weight = args.loss_weight  # 0.0001
 
+        self.writer = SummaryWriter('runs/NLGCN')
+
     def train_net(self, epoch):
         # try:
         loss_train= self.run_trainSet(epoch)
@@ -142,13 +148,19 @@ class trainer(object):
             loss_train, acc_train, acc_valid, acc_test = self.train_net(epoch)
             print('Epoch: {:02d}, Loss: {:.4f}, val_acc: {:.4f}, test_acc:{:.4f}'.format(epoch, loss_train,
                                                                                         acc_valid, acc_test))
-            if best_acc < acc_valid:
+            
+            if epoch % 5 == 4:
+                self.writer.add_scalar('Loss/train', loss_train, epoch)
+                self.writer.add_scalar('Accuracy/train', acc_train, epoch)
+                self.writer.add_scalar('Accuracy/test', acc_test, epoch)
+
+            if best_acc <= acc_valid:
                 best_acc = acc_valid
                 self.model.cpu()
                 self.save_model(self.type_model, self.dataset)
                 self.model.to(self.device)
             
-
+        self.writer.close()
         self.log = self.load_log(type_model=self.type_model, dataset=self.dataset, load=True)
         state_dict = self.load_model(self.type_model, self.dataset)
         self.model.load_state_dict(state_dict)
@@ -168,37 +180,39 @@ class trainer(object):
         self.model.train()
         loss = 0.
         if self.dataset in ['Cora', 'Citeseer', 'Pubmed', 'CoauthorCS']:
-            logits, adj= self.model(self.data.x, self.data.edge_index)
-            logits = F.log_softmax(logits[self.data.train_mask], 1)
-            loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
+            if self.type_model == 'NLGCN':
+                logits, adj= self.model(self.data.x, self.data.edge_index)
+                logits = F.log_softmax(logits[self.data.train_mask], 1)
+                loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
-            # L1 regularization for matrix sparsification
-            # loss += 1e-6*torch.norm(adj_new, 1)
+                # label guiding loss
+                mask = self.data.train_mask
+                adj_new = adj[mask, :][:, mask]
+                label = torch.zeros(len(self.data.y[mask]), self.num_classes).to(self.device)
+                label = label.scatter_(1, torch.unsqueeze(self.data.y[mask], dim=1), 1)
+                adj_label = torch.matmul(label, label.t())
+                loss += self.lamb*self.entropy_loss(adj_new, adj_label)
 
-            # label guiding loss
-            mask = self.data.train_mask
-            adj_new = adj[mask, :][:, mask]
-            label = torch.zeros(len(self.data.y[mask]), self.num_classes).to(self.device)
-            label = label.scatter_(1, torch.unsqueeze(self.data.y[mask], dim=1), 1)
-            adj_label = torch.matmul(label, label.t())
-            loss += self.lamb*self.entropy_loss(adj_new, adj_label)
+                if epoch % 200 == 0:
+                    value_max = torch.max(adj_new).cpu()
+                    value_min = torch.min(adj_new).cpu()
+                    print(f'value_max : {value_max}')
+                    print(f'value_min : {value_min}')
 
-            if epoch % 200 == 0:
-                value_max = torch.max(adj_new).cpu()
-                value_min = torch.min(adj_new).cpu()
-                print(f'value_max : {value_max}')
-                print(f'value_min : {value_min}')
-
-                heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
-                fig = heat_map.get_figure()
-                fig.savefig(self.figurename(f'adj_new{epoch}.png'))
-                plt.clf()
-            
-            if epoch % 1000 == 0:
-                heat_map = sns.heatmap(adj_label.cpu().detach().numpy())
-                fig = heat_map.get_figure()
-                fig.savefig(self.figurename(f'adj_label.png'))
-                plt.clf()
+                    heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
+                    fig = heat_map.get_figure()
+                    fig.savefig(self.figurename(f'adj_new{epoch}.png'))
+                    plt.clf()
+                
+                if epoch % 1000 == 0:
+                    heat_map = sns.heatmap(adj_label.cpu().detach().numpy())
+                    fig = heat_map.get_figure()
+                    fig.savefig(self.figurename(f'adj_label.png'))
+                    plt.clf()
+            else:
+                logits, adj= self.model(self.data.x, self.data.edge_index)
+                logits = F.log_softmax(logits[self.data.train_mask], 1)
+                loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
         elif self.dataset in ['PPI']:
             for data in self.data[0]:

@@ -30,10 +30,17 @@ class TAdj(nn.Module):
         # A = X_theta + X_phi.t()
 
         A = F.tanh(A)
-        A_new = F.threshold(A, self.threshold, 0.)
+        # A_new = F.threshold(A, self.threshold, 0.)
+        A_new = self.topk(A, k=5)
+        # A_new = F.softmax(A, dim=1)
 
         A_orig = adj
         A_orig = torch.squeeze(A_orig, dim=0)
         P = A_orig + self.alpha * A_new
 
         return P, A
+
+    def topk(self, adj, k):
+        values, indices = torch.topk(adj, k, dim=1)
+        adj_new = torch.zeros_like(adj).scatter_(1, indices, values)
+        return adj_new

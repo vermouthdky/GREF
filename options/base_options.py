@@ -104,7 +104,7 @@ class BaseOptions():
         parser.add_argument('--type_model', type=str, default="GCN")
         parser.add_argument('--num_layers', type=int, default=2)
         parser.add_argument('--batch_size', type=int, default=64)
-        parser.add_argument("--epochs", type=int, default=1500,
+        parser.add_argument("--epochs", type=int, default=1000,
                             help="number of training the one shot model")
         parser.add_argument("--multi_label", type=bool, default=False,
                             help="multi_label or single_label task")
@@ -126,7 +126,7 @@ class BaseOptions():
         parser.add_argument('--alpha', type=float, default=1.0)
         parser.add_argument('--temperature', type=float, default=1e-6, help='temperature for sigmoid in adj matrix sparsification')
         parser.add_argument('--freezed', type=bool, default=False, help='freeze the TAdj layer')
-        parser.add_argument('--lamb', type=float, default=0.5, help='limit the entropy loss')
+        parser.add_argument('--lamb', type=float, default=2.0, help='limit the entropy loss')
 
         # mutual information
         parser.add_argument('--num_bins', type=int, default=10)
