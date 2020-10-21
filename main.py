@@ -1,9 +1,12 @@
-from options.base_options import BaseOptions, reset_weight
-from trainer import trainer
-import torch
 import os
-import numpy as np
 import random
+
+import numpy as np
+import torch
+
+from options.base_options import BaseOptions
+from trainer import trainer
+
 
 def set_seed(args):
     torch.backends.cudnn.deterministic = True
@@ -34,18 +37,14 @@ hypers_skip = [0.001, 0.005, 0.01, 0.03, 0.05, 0.1]
 
 
 def main(args):
-
-    # set random seed
-    if args.train:
-        
-        print('------alpha--------:%f' %(args.alpha))
-        # if args.type_norm == 'group':
-        #     args = reset_weight(args)
-        for seed in seeds:
-            args.random_seed = seed
-            set_seed(args)
-            trnr = trainer(args)
-            trnr.train()
+    print('------alpha--------:%f' % (args.alpha))
+    # if args.type_norm == 'group':
+    #     args = reset_weight(args)
+    for seed in seeds:
+        args.random_seed = seed
+        set_seed(args)
+        trnr = trainer(args)
+        trnr.train()
 
 
 if __name__ == "__main__":
