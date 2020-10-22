@@ -1,78 +1,87 @@
 from torch import nn
-import torch.nn.functional as F
-from torch_geometric.nn import DenseGCNConv, GCNConv
-from models.common_blocks import act_map
+from models.common_blocks import act_map, Pool, Unpool, GCN, norm_g
 from torch_geometric.nn.inits import glorot, zeros
-from models.trainable_adj import TAdj
 import torch
 from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse, dropout_adj
-import torch.nn.functional as F
+
 
 class NLGCN(nn.Module):
     def __init__(self, args):
+        # def __init__(self, ks, in_dim, out_dim, dim, act, drop_p):
         super(NLGCN, self).__init__()
-        self.dataset = args.dataset
-        self.num_layers = args.num_layers
+        self.alpha = args.alpha
+        self.ks = args.ks
+        self.l_n = len(self.ks)
+        self.dim_hidden = args.dim_hidden
         self.num_feats = args.num_feats
         self.num_classes = args.num_classes
-        self.dim_hidden = args.dim_hidden
         self.activation = args.activation
-        self.dropout = args.dropout
-        self.alpha = args.alpha
-        self.temperature = args.temperature
-        self.threshold = args.threshold
-        self.freezed = args.freezed
-        self.device = torch.device(f'cuda:{args.cuda_num}' if args.cuda else 'cpu')
-        self.cached = self.transductive = args.transductive
-        self.layers_GCN = nn.ModuleList([])
-        self.layers_DenseGCN = nn.ModuleList([])
-        self.layers_activation = nn.ModuleList([])
-        self.layer_linear = nn.Linear(self.num_feats, self.dim_hidden)
-        self.layers_TAdj = nn.ModuleList([])
+        self.dropout_c = args.dropout_c
+        self.dropout_n = args.dropout_n
+        self.num_layers = args.num_layers
+        # activation function
+        self.n_act = act_map(self.activation)
+        self.c_act = act_map(self.activation)
+        # source gcn
+        self.s_gcn = GCN(self.num_feats, self.dim_hidden, self.n_act, self.dropout_c)
+        # graph U net structure
+        self.bottom_gcn = GCN(self.dim_hidden, self.dim_hidden, act_map(self.activation), self.dropout_c)
+        self.down_gcns = nn.ModuleList()
+        self.up_gcns = nn.ModuleList()
+        self.pools = nn.ModuleList()
+        self.unpools = nn.ModuleList()
 
-        self.TAdj = TAdj(self.num_feats, self.dim_hidden, self.alpha, self.temperature, self.threshold, self.training)
-        
-        if self.num_layers == 1:
-            self.layers_DenseGCN.append(DenseGCNConv(self.num_feats, self.num_classes, improved=True, bias=False))
-        elif self.num_layers == 2:
-            self.layers_DenseGCN.append(DenseGCNConv(self.num_feats, self.dim_hidden, improved=True, bias=False))
-            self.layers_DenseGCN.append(DenseGCNConv(self.dim_hidden, self.num_classes, improved=True, bias=False))
-        else:
-            self.layers_DenseGCN.append(DenseGCNConv(self.num_feats, self.dim_hidden, improved=True, bias=False))
-            for _ in range(self.num_layers-2):
-                self.layers_DenseGCN.append(DenseGCNConv(self.dim_hidden, self.dim_hidden, improved=True, bias=False))
-            self.layers_DenseGCN.append(DenseGCNConv(self.dim_hidden, self.num_classes, improved=True, bias=False))
-                
-        for i in range(self.num_layers):
-            self.layers_activation.append(act_map(self.activation))
-            
-    def forward(self, x, edge_index):
+        self.down_gcns.append(GCN(self.num_feats, self.dim_hidden, act_map(self.activation), self.dropout_c))
+        for i in range(self.l_n - 1):
+            self.down_gcns.append(GCN(self.dim_hidden, self.dim_hidden, act_map(self.activation), self.dropout_c))
+            self.up_gcns.append(GCN(self.dim_hidden, self.dim_hidden, act_map(self.activation), self.dropout_c))
+        self.up_gcns.append(GCN(self.dim_hidden, self.num_classes, act_map('linear'), self.dropout_c))
 
-        adj = to_dense_adj(edge_index)
-        adj = torch.squeeze(adj, dim=0)
+        for i in range(self.l_n):
+            self.pools.append(Pool(self.ks[i], self.dim_hidden, self.dropout_c))
+            self.unpools.append(Unpool(self.dim_hidden, self.dim_hidden, self.dropout_c))
+        # out GCN
+        # self.out_l_1 = nn.Linear(self.dim_hidden, self.dim_hidden)
+        # self.out_l_2 = nn.Linear(self.dim_hidden, self.num_classes)
+        # self.out_gcn = GCN(self.dim_hidden, self.num_classes, act_map('linear'), p=0.0)
+        # self.out_drop = nn.Dropout(self.dropout_n)
 
-        for i in range(self.num_layers):   
+        # self.gunet = GraphUNet(self.num_feats, self.dim_hidden, self.num_classes, 4)
 
-            if i == 0 or i == self.num_layers-1:
-                x = F.dropout(x, p=self.dropout, training=self.training)
-            
-            x = self.layers_DenseGCN[i](x, adj)
-            x = self.layers_activation[i](x)
-            x = torch.squeeze(x, dim=0)
+    def forward(self, h, g):
+        g = to_dense_adj(g)
+        g = torch.squeeze(g)
+        # h = self.s_gcn(g, h)
+        h = torch.squeeze(h)
 
-        adj_new = F.tanh(torch.matmul(x, x.t()))
+        h = self.g_unet_forward(g, h)
+        # classify
+        # h = self.out_drop(h)
+        # h = self.out_l_1(h)
+        # h = self.c_act(h)
+        # h = self.out_drop(h)
+        # h = self.out_gcn(g, h)
+        # h = self.gunet(h, g)
 
-        # get the relations between supernodes and nodes
-        # adj_super = F.softmax(x, dim=1) # N x num_classes
-        # adj_new_upper = torch.cat((adj, adj_super), dim=1)
-        # adj_new_lower = torch.cat((adj_super.t(), torch.zeros(self.num_classes, self.num_classes)), dim=1)
-        # adj_new = torch.cat((adj_new_upper, adj_new_lower), dim=0) 
-            
-        return x, adj_new
+        return h
 
+    def g_unet_forward(self, g, h):
+        adj_ms = []
+        indices_list = []
+        down_outs = []
 
+        for i in range(self.l_n):
+            h = self.down_gcns[i](g, h)
+            adj_ms.append(g)
+            down_outs.append(h)
+            g, h, idx = self.pools[i](g, h)
+            indices_list.append(idx)
+        h = self.bottom_gcn(g, h)
+        for i in range(self.l_n):
+            up_idx = self.l_n - i - 1
+            g, idx = adj_ms[up_idx], indices_list[up_idx]
+            g, h = self.unpools[i](g, h, idx)
+            h = h.add(down_outs[up_idx])  # residual connection
+            h = self.up_gcns[i](g, h)
 
-
-
-
-
+        return h

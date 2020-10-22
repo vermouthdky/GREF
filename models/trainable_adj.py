@@ -1,9 +1,10 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse
 from models.common_blocks import act_map
+
 # trainable adjacent matrix
+
 
 class TAdj(nn.Module):
     def __init__(self, num_feats, dim_hidden, alpha, temperature, threshold, training):
@@ -16,10 +17,9 @@ class TAdj(nn.Module):
         self.training = training
         self.W_theta = nn.Linear(self.num_feats, self.dim_hidden, bias=True)
         self.W_phi = nn.Linear(self.num_feats, self.dim_hidden, bias=True)
-        self.activation = act_map('relu')
-        
-    def forward(self, X, adj):
+        self.activation = act_map("relu")
 
+    def forward(self, X, adj):
         X_theta = self.W_theta(X)
         X_theta = self.activation(X_theta)
 

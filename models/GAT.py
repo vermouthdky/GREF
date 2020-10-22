@@ -1,7 +1,9 @@
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 from torch_geometric.nn import GATConv
-from models.common_blocks import act_map, batch_norm
+
+from models.common_blocks import act_map
+
 
 class GAT(nn.Module):
     def __init__(self, args):
@@ -58,7 +60,7 @@ class GAT(nn.Module):
                 skip_connect = False
             else:
                 skip_connect = True
-            self.layers_bn.append(batch_norm(dim_out, self.type_norm, skip_connect, self.num_groups, self.skip_weight))
+            # self.layers_bn.append(batch_norm(dim_out, self.type_norm, skip_connect, self.num_groups, self.skip_weight))
             if self.residual:
                 self.layers_residual.append(nn.Linear(dim_in, dim_out, bias=False))
 
