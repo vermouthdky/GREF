@@ -128,6 +128,7 @@ class BaseOptions():
                             help='temperature for sigmoid in adj matrix sparsification')
         parser.add_argument('--lamb', type=float, default=2.0, help='limit the entropy loss')
         parser.add_argument('--ks', type=float, nargs='+', default=[0.5, 0.5, 0.5, 0.5])
+        parser.add_argument('--n_att', type=int, default=1, help='the number of multi attention strategy')
         # parser.add_argument('--ks', type=int, nargs='+', default=[2000, 1000, 500, 200])
         args = parser.parse_args()
         args = self.reset_model_parameter(args)

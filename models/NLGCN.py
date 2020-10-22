@@ -1,8 +1,7 @@
 from torch import nn
 from models.common_blocks import act_map, Pool, Unpool, GCN, norm_g
-from torch_geometric.nn.inits import glorot, zeros
 import torch
-from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse, dropout_adj
+from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse
 
 
 class NLGCN(nn.Module):
@@ -11,6 +10,7 @@ class NLGCN(nn.Module):
         super(NLGCN, self).__init__()
         self.alpha = args.alpha
         self.ks = args.ks
+        self.n_att = args.n_att
         self.l_n = len(self.ks)
         self.dim_hidden = args.dim_hidden
         self.num_feats = args.num_feats
@@ -38,7 +38,7 @@ class NLGCN(nn.Module):
         self.up_gcns.append(GCN(self.dim_hidden, self.num_classes, act_map('linear'), self.dropout_c))
 
         for i in range(self.l_n):
-            self.pools.append(Pool(self.ks[i], self.dim_hidden, self.dropout_c))
+            self.pools.append(Pool(self.ks[i], self.dim_hidden, self.dropout_c, self.n_att))
             self.unpools.append(Unpool(self.dim_hidden, self.dim_hidden, self.dropout_c))
         # out GCN
         # self.out_l_1 = nn.Linear(self.dim_hidden, self.dim_hidden)

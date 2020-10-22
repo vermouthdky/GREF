@@ -21,11 +21,17 @@ class GCN(nn.Module):
 
 class Pool(nn.Module):
 
-    def __init__(self, k, in_dim, p):
+    def __init__(self, k, in_dim, p, n_att):
         super(Pool, self).__init__()
         self.k = k
+        self.n_att = n_att
         self.sigmoid = nn.Sigmoid()
         self.proj = nn.Linear(in_dim, 1)
+
+        self.projs = nn.ModuleList()
+        for i in range(self.n_att):
+            self.projs.append(nn.Linear(in_dim, 1))
+
         self.drop = nn.Dropout(p=p) if p > 0 else nn.Identity()
 
     def forward(self, g, h):
@@ -35,10 +41,16 @@ class Pool(nn.Module):
         g[idx, idx] = 1
         g = torch.matmul(g, g)
 
-        Z = self.drop(h)
-        weights = self.proj(Z).squeeze()
-        scores = self.sigmoid(weights)
-        return top_k_graph(scores, g, h, self.k)
+        scores = []
+        for i in range(self.n_att):
+            Z = self.drop(h)
+            weights = self.projs[i](Z).squeeze()
+            scores.append(self.sigmoid(weights))
+        score = torch.stack(scores, dim=0).sum(dim=0)
+        # Z = self.drop(h)
+        # weights = self.proj(Z).squeeze()
+        # scores = self.sigmoid(weights)
+        return top_k_graph(score, g, h, self.k)
 
 
 class Unpool(nn.Module):
