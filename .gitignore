@@ -131,3 +131,6 @@ dmypy.json
 # figures
 figures/
 
+.vscode/
+
+.idea/
