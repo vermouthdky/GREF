@@ -11,21 +11,14 @@ from torch_geometric.data import DataLoader
 import torch_geometric.transforms as T
 import torch.nn.functional as F
 import glob
-from torch_geometric.utils import remove_self_loops, add_self_loops, dense_to_sparse
+from torch_geometric.utils import remove_self_loops, add_self_loops
 import numpy as np
-from torch_sparse import spspmm, coalesce, to_scipy, from_scipy
 from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-import scipy.sparse
-import matplotlib.gridspec as gridspec
-from options.base_options import reset_weight
+import matplotlib.pyplot as plt
 from sklearn import metrics
-import sklearn
 
 import seaborn as sns
 
-import torchvision
-import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -157,7 +150,7 @@ class trainer(object):
                 self.writer.add_scalar("Accuracy/train", acc_train, epoch)
                 self.writer.add_scalar("Accuracy/test", acc_test, epoch)
 
-            if best_acc <= acc_valid:
+            if best_acc < acc_valid:
                 best_acc = acc_valid
                 self.model.cpu()
                 self.save_model(self.type_model, self.dataset)
@@ -189,34 +182,30 @@ class trainer(object):
         loss = 0.0
         if self.dataset in ["Cora", "Citeseer", "Pubmed", "CoauthorCS"]:
             if self.type_model == "NLGCN":
-                logits = self.model(self.data.x, self.data.edge_index)
+                logits, new_gs, new_hs, gs = self.model(self.data.x, self.data.edge_index)
                 logits = F.log_softmax(logits[self.data.train_mask], 1)
                 loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
-                # label guiding loss
-                # mask = self.data.train_mask
-                # adj_new = adj[mask, :][:, mask]
-                # label = torch.zeros(len(self.data.y[mask]), self.num_classes).to(self.device)
-                # label = label.scatter_(1, torch.unsqueeze(self.data.y[mask], dim=1), 1)
-                # adj_label = torch.matmul(label, label.t())
-                # loss += self.lamb * self.entropy_loss(adj_new, adj_label)
-                #
-                # if epoch % 200 == 0:
-                #     value_max = torch.max(adj_new).cpu()
-                #     value_min = torch.min(adj_new).cpu()
-                #     print(f"value_max : {value_max}")
-                #     print(f"value_min : {value_min}")
-                #
-                #     heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
-                #     fig = heat_map.get_figure()
-                #     fig.savefig(self.figurename(f"adj_new{epoch}.png"))
-                #     plt.clf()
-                #
-                # if epoch % 1000 == 0:
-                #     heat_map = sns.heatmap(adj_label.cpu().detach().numpy())
-                #     fig = heat_map.get_figure()
-                #     fig.savefig(self.figurename(f"adj_label.png"))
-                #     plt.clf()
+                # graph regularization
+                # for new_h, new_g in zip(new_hs, new_gs):
+                #     d = new_h.size()[1]
+                #     loss += 1/(d^2)*torch.trace(torch.chain_matmul(new_h.t(), torch.diag(torch.sum(new_g, dim=1))-new_g, new_h))
+
+                if epoch % 200 == 199:
+                    for i, adj_new in enumerate(new_gs):
+                        heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
+                        fig = heat_map.get_figure()
+                        fig.savefig(self.figurename(f"adj_new{epoch}_{i}.png"))
+                        plt.clf()
+
+                    for i, g in enumerate(gs):
+                        heat_map = sns.heatmap(g.cpu().detach().numpy())
+                        fig = heat_map.get_figure()
+                        fig.savefig(self.figurename(f"adj{epoch}_{i}.png"))
+                        plt.clf()
+
+                if epoch == 998:
+                    pass
             else:
                 logits, adj = self.model(self.data.x, self.data.edge_index)
                 logits = F.log_softmax(logits[self.data.train_mask], 1)
@@ -245,7 +234,7 @@ class trainer(object):
         # torch.cuda.empty_cache()
         if self.dataset in ["Cora", "Citeseer", "Pubmed", "CoauthorCS"]:
             with torch.no_grad():
-                logits = self.model(self.data.x, self.data.edge_index)
+                logits, _, _, _ = self.model(self.data.x, self.data.edge_index)
             logits = F.log_softmax(logits, 1)
             acc_train = evaluate(logits, self.data.y, self.data.train_mask)
             acc_valid = evaluate(logits, self.data.y, self.data.val_mask)

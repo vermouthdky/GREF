@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch_geometric.nn import DenseGCNConv
 
@@ -81,8 +82,26 @@ def top_k_graph(scores, g, h, k):
 
 def norm_g(g):
     degrees = torch.sum(g, 1)
+    degrees = torch.unsqueeze(degrees, dim=-1)
     g = g / degrees
     return g
+
+
+class RefinedGraph(torch.nn.Module):
+    def __init__(self):
+        super(RefinedGraph, self).__init__()
+        self.act = act_map('softmax')
+
+    def forward(self, g, h):
+        h = F.normalize(h)
+        g = norm_g(g)
+        new_g = torch.matmul(h, h.t())
+        values, indices = torch.topk(new_g, k=5, dim=1)
+        new_g = torch.zeros_like(new_g).scatter_(1, indices, values)
+        new_g = self.act(new_g)
+        g = g.add(new_g)
+        g = norm_g(g)
+        return g, new_g
 
 
 class act_map(torch.nn.Module):
@@ -104,6 +123,8 @@ class act_map(torch.nn.Module):
             self.f = torch.nn.functional.softplus
         elif act_type == "leaky_relu":
             self.f = torch.nn.functional.leaky_relu
+        elif act_type == 'softmax':
+            self.f = torch.nn.functional.softmax
         else:
             raise Exception("wrong activate function")
 

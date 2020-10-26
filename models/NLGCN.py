@@ -1,7 +1,8 @@
-from torch import nn
-from models.common_blocks import act_map, Pool, Unpool, GCN, norm_g
 import torch
-from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse
+from torch import nn
+from torch_geometric.utils import to_dense_adj
+
+from models.common_blocks import act_map, Pool, Unpool, GCN, RefinedGraph
 
 
 class NLGCN(nn.Module):
@@ -30,6 +31,8 @@ class NLGCN(nn.Module):
         self.up_gcns = nn.ModuleList()
         self.pools = nn.ModuleList()
         self.unpools = nn.ModuleList()
+        self.refined_pooling_graphs = nn.ModuleList()
+        self.refined_unpooling_graphs = nn.ModuleList()
 
         self.down_gcns.append(GCN(self.num_feats, self.dim_hidden, act_map(self.activation), self.dropout_c))
         for i in range(self.l_n - 1):
@@ -40,6 +43,8 @@ class NLGCN(nn.Module):
         for i in range(self.l_n):
             self.pools.append(Pool(self.ks[i], self.dim_hidden, self.dropout_c, self.n_att))
             self.unpools.append(Unpool(self.dim_hidden, self.dim_hidden, self.dropout_c))
+            self.refined_pooling_graphs.append(RefinedGraph())
+            self.refined_unpooling_graphs.append(RefinedGraph())
         # out GCN
         # self.out_l_1 = nn.Linear(self.dim_hidden, self.dim_hidden)
         # self.out_l_2 = nn.Linear(self.dim_hidden, self.num_classes)
@@ -69,6 +74,8 @@ class NLGCN(nn.Module):
         adj_ms = []
         indices_list = []
         down_outs = []
+        new_gs = []
+        new_hs = []
 
         for i in range(self.l_n):
             h = self.down_gcns[i](g, h)
@@ -76,12 +83,20 @@ class NLGCN(nn.Module):
             down_outs.append(h)
             g, h, idx = self.pools[i](g, h)
             indices_list.append(idx)
+            g, new_g = self.refined_pooling_graphs[i](g, h)
+            new_gs.append(new_g)
+            new_hs.append(h)
+
         h = self.bottom_gcn(g, h)
+
         for i in range(self.l_n):
             up_idx = self.l_n - i - 1
             g, idx = adj_ms[up_idx], indices_list[up_idx]
             g, h = self.unpools[i](g, h, idx)
             h = h.add(down_outs[up_idx])  # residual connection
+            # g, new_g = self.refined_unpooling_graphs[i](g, h)
+            new_gs.append(new_g)
+            new_hs.append(h)
             h = self.up_gcns[i](g, h)
 
-        return h
+        return h, new_gs, new_hs, adj_ms
