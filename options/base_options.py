@@ -107,7 +107,7 @@ class BaseOptions():
         parser.add_argument('--type_model', type=str, default="GCN")
         parser.add_argument('--num_layers', type=int, default=4)
         parser.add_argument('--batch_size', type=int, default=64)
-        parser.add_argument("--epochs", type=int, default=500, help="number of training the one shot model")
+        parser.add_argument("--epochs", type=int, default=1000, help="number of training the one shot model")
         parser.add_argument("--multi_label", type=bool, default=False, help="multi_label or single_label task")
         parser.add_argument("--dropout_c", type=float, default=0.6, help="adj matrix dropout rate")
         parser.add_argument("--dropout_n", type=float, default=0.08, help='dense layer dropout rate')

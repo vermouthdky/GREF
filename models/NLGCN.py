@@ -79,6 +79,12 @@ class NLGCN(nn.Module):
 
         for i in range(self.l_n):
             h = self.down_gcns[i](g, h)
+
+            # test
+            # degrees = torch.sum(g, 1)
+            # print(torch.max(degrees), torch.mean(degrees))
+            # !!! The pooled graph is 1 degree
+
             adj_ms.append(g)
             down_outs.append(h)
             g, h, idx = self.pools[i](g, h)
@@ -95,8 +101,6 @@ class NLGCN(nn.Module):
             g, h = self.unpools[i](g, h, idx)
             h = h.add(down_outs[up_idx])  # residual connection
             # g, new_g = self.refined_unpooling_graphs[i](g, h)
-            new_gs.append(new_g)
-            new_hs.append(h)
             h = self.up_gcns[i](g, h)
 
         return h, new_gs, new_hs, adj_ms

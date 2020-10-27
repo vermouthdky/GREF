@@ -1,25 +1,24 @@
-import torch
-import os
-from models.GCN import GCN
-from models.GAT import GAT
-from models.NLGCN import NLGCN
-from torch_geometric.datasets import Planetoid
-from torch_geometric.datasets import PPI
-from torch_geometric.datasets import Coauthor
-
-from torch_geometric.data import DataLoader
-import torch_geometric.transforms as T
-import torch.nn.functional as F
 import glob
-from torch_geometric.utils import remove_self_loops, add_self_loops
-import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
+import os
+
 import matplotlib.pyplot as plt
-from sklearn import metrics
-
+import numpy as np
 import seaborn as sns
-
+import torch
+import torch.nn.functional as F
+import torch_geometric.transforms as T
+from mpl_toolkits.mplot3d import Axes3D
+from sklearn import metrics
 from torch.utils.tensorboard import SummaryWriter
+from torch_geometric.data import DataLoader
+from torch_geometric.datasets import Coauthor
+from torch_geometric.datasets import PPI
+from torch_geometric.datasets import Planetoid
+from torch_geometric.utils import remove_self_loops, add_self_loops
+
+from models.GAT import GAT
+from models.GCN import GCN
+from models.NLGCN import NLGCN
 
 
 def load_data(dataset="Cora"):
@@ -204,7 +203,7 @@ class trainer(object):
                         fig.savefig(self.figurename(f"adj{epoch}_{i}.png"))
                         plt.clf()
 
-                if epoch == 998:
+                if epoch == 399:
                     pass
             else:
                 logits, adj = self.model(self.data.x, self.data.edge_index)

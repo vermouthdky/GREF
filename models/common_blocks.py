@@ -36,6 +36,7 @@ class Pool(nn.Module):
         self.drop = nn.Dropout(p=p) if p > 0 else nn.Identity()
 
     def forward(self, g, h):
+        # TODO : denormalize
         # graph augmentation A = (A+I)^2
         num_nodes, _ = g.size()
         idx = torch.arange(num_nodes, dtype=torch.long, device=g.device)
@@ -48,9 +49,7 @@ class Pool(nn.Module):
             weights = self.projs[i](Z).squeeze()
             scores.append(self.sigmoid(weights))
         score = torch.stack(scores, dim=0).sum(dim=0)
-        # Z = self.drop(h)
-        # weights = self.proj(Z).squeeze()
-        # scores = self.sigmoid(weights)
+
         return top_k_graph(score, g, h, self.k)
 
 
@@ -83,6 +82,7 @@ def top_k_graph(scores, g, h, k):
 def norm_g(g):
     degrees = torch.sum(g, 1)
     degrees = torch.unsqueeze(degrees, dim=-1)
+    degrees = F.threshold(degrees, 0, 1)
     g = g / degrees
     return g
 
@@ -96,9 +96,15 @@ class RefinedGraph(torch.nn.Module):
         h = F.normalize(h)
         g = norm_g(g)
         new_g = torch.matmul(h, h.t())
+        # new_g = new_g - I
+        num_nodes, _ = new_g.size()
+        idx = torch.arange(num_nodes, dtype=torch.long, device=new_g.device)
+        new_g[idx, idx] = 0
+        # topk
         values, indices = torch.topk(new_g, k=5, dim=1)
         new_g = torch.zeros_like(new_g).scatter_(1, indices, values)
-        new_g = self.act(new_g)
+        new_g = norm_g(new_g)
+
         g = g.add(new_g)
         g = norm_g(g)
         return g, new_g
