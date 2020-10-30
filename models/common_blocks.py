@@ -38,6 +38,7 @@ class Pool(nn.Module):
     def forward(self, g, h):
         # TODO : denormalize
         # graph augmentation A = (A+I)^2
+        g = g.clone()
         num_nodes, _ = g.size()
         idx = torch.arange(num_nodes, dtype=torch.long, device=g.device)
         g[idx, idx] = 1
@@ -88,9 +89,10 @@ def norm_g(g):
 
 
 class RefinedGraph(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, alpha):
         super(RefinedGraph, self).__init__()
         self.act = act_map('softmax')
+        self.alpha = alpha
 
     def forward(self, g, h):
         h = F.normalize(h)
@@ -101,11 +103,10 @@ class RefinedGraph(torch.nn.Module):
         idx = torch.arange(num_nodes, dtype=torch.long, device=new_g.device)
         new_g[idx, idx] = 0
         # topk
-        values, indices = torch.topk(new_g, k=5, dim=1)
-        new_g = torch.zeros_like(new_g).scatter_(1, indices, values)
+        # values, indices = torch.topk(new_g, k=5, dim=1)
+        # new_g = torch.zeros_like(new_g).scatter_(1, indices, values)
         new_g = norm_g(new_g)
-
-        g = g.add(new_g)
+        g = g.add(new_g, alpha=self.alpha)
         g = norm_g(g)
         return g, new_g
 

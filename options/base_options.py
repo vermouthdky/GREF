@@ -123,13 +123,15 @@ class BaseOptions():
         parser.add_argument('--early_stop', default=True, action="store_true")
         parser.add_argument('--num_neighbors', type=float, default=1.0)
         parser.add_argument('--threshold', type=float, default=0.6)
-        parser.add_argument('--alpha', type=float, default=1.0)
         parser.add_argument('--temperature', type=float, default=1e-6,
                             help='temperature for sigmoid in adj matrix sparsification')
-        parser.add_argument('--lamb', type=float, default=2.0, help='limit the entropy loss')
         parser.add_argument('--ks', type=float, nargs='+', default=[0.5, 0.5, 0.5, 0.5])
         parser.add_argument('--n_att', type=int, default=1, help='the number of multi attention strategy')
-        # parser.add_argument('--ks', type=int, nargs='+', default=[2000, 1000, 500, 200])
+
+        parser.add_argument('--alpha', type=float, default=0.8)
+        parser.add_argument('--lamb', type=float, default=0.2)
+        parser.add_argument('--gamma', type=float, default=0.5)
+        parser.add_argument('--beta', type=float, default=0.5)
         args = parser.parse_args()
         args = self.reset_model_parameter(args)
         return args

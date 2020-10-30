@@ -1,13 +1,10 @@
-import glob
 import os
 
 import matplotlib.pyplot as plt
-import numpy as np
 import seaborn as sns
 import torch
 import torch.nn.functional as F
 import torch_geometric.transforms as T
-from mpl_toolkits.mplot3d import Axes3D
 from sklearn import metrics
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.data import DataLoader
@@ -110,6 +107,8 @@ class trainer(object):
         self.epochs = args.epochs
         self.weight_decay = args.weight_decay
         self.alpha = args.alpha
+        self.gamma = args.gamma
+        self.beta = args.beta
         self.lamb = args.lamb
         self.num_classes = args.num_classes
 
@@ -186,9 +185,13 @@ class trainer(object):
                 loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
                 # graph regularization
-                # for new_h, new_g in zip(new_hs, new_gs):
-                #     d = new_h.size()[1]
-                #     loss += 1/(d^2)*torch.trace(torch.chain_matmul(new_h.t(), torch.diag(torch.sum(new_g, dim=1))-new_g, new_h))
+                for new_h, new_g in zip(new_hs, new_gs):
+                    n = new_h.size()[0]
+                    d = new_h.size()[1]
+                    loss += self.lamb / (d ^ 2) * torch.trace(
+                        torch.chain_matmul(new_h.t(), torch.diag(torch.sum(new_g, dim=1)) - new_g, new_h))
+                    # loss += -self.beta * torch.sum(torch.log(torch.sum(new_g, dim=1))) / n
+                    loss += self.gamma * torch.norm(new_g) / (n ^ 2)
 
                 if epoch % 200 == 199:
                     for i, adj_new in enumerate(new_gs):

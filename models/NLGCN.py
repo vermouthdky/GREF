@@ -43,8 +43,7 @@ class NLGCN(nn.Module):
         for i in range(self.l_n):
             self.pools.append(Pool(self.ks[i], self.dim_hidden, self.dropout_c, self.n_att))
             self.unpools.append(Unpool(self.dim_hidden, self.dim_hidden, self.dropout_c))
-            self.refined_pooling_graphs.append(RefinedGraph())
-            self.refined_unpooling_graphs.append(RefinedGraph())
+            self.refined_pooling_graphs.append(RefinedGraph(self.alpha))
         # out GCN
         # self.out_l_1 = nn.Linear(self.dim_hidden, self.dim_hidden)
         # self.out_l_2 = nn.Linear(self.dim_hidden, self.num_classes)
@@ -76,7 +75,7 @@ class NLGCN(nn.Module):
         down_outs = []
         new_gs = []
         new_hs = []
-
+        gs = []
         for i in range(self.l_n):
             h = self.down_gcns[i](g, h)
 
@@ -91,6 +90,7 @@ class NLGCN(nn.Module):
             indices_list.append(idx)
             g, new_g = self.refined_pooling_graphs[i](g, h)
             new_gs.append(new_g)
+            gs.append(g)
             new_hs.append(h)
 
         h = self.bottom_gcn(g, h)
@@ -100,7 +100,6 @@ class NLGCN(nn.Module):
             g, idx = adj_ms[up_idx], indices_list[up_idx]
             g, h = self.unpools[i](g, h, idx)
             h = h.add(down_outs[up_idx])  # residual connection
-            # g, new_g = self.refined_unpooling_graphs[i](g, h)
             h = self.up_gcns[i](g, h)
 
-        return h, new_gs, new_hs, adj_ms
+        return h, new_gs, new_hs, gs
