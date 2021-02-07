@@ -7,6 +7,9 @@ import torch
 from options.base_options import BaseOptions
 from trainer import trainer
 
+# import ray
+# from ray import tune
+# from ray.tune.schedulers import AsyncHyperBandScheduler
 
 def set_seed(args):
     torch.backends.cudnn.deterministic = True
@@ -21,8 +24,9 @@ def set_seed(args):
     np.random.seed(args.random_seed)
     random.seed(args.random_seed)
 
-# seeds = [100, 200, 300, 400, 500] #  + [123, 50, 150, 250, 350, 450]
-seeds = [200]
+# seeds = [15, 100, 200, 300, 400]  #+ [123, 50, 150, 250, 350]
+seeds = [5, 15, 20, 25, 35]
+# seeds = [5]
 # layers_GCN = list(range(1, 10, 1)) + list(range(10, 31, 5))
 # layers_GCN = [4] # userd for study GCN hyperparameters: 20 ; and visulization
 # layers_GCN = [1, 2, 3, 4, 7, 8, 9] + list(range(10, 31, 5))
@@ -36,15 +40,14 @@ hypers_skip = [0.001, 0.005, 0.01, 0.03, 0.05, 0.1]
 # thresholds = [0.5, 0.1, 0.005, 0.002, 0.0005]
 
 
-def main(args):
-    print('------alpha--------:%f' % (args.alpha))
-    # if args.type_norm == 'group':
-    #     args = reset_weight(args)
+def main(args, num_samples=10, max_num_samples=500, gpus_per_trial=4):
+
     for seed in seeds:
         args.random_seed = seed
         set_seed(args)
         trnr = trainer(args)
         trnr.train()
+
 
 
 if __name__ == "__main__":

@@ -22,10 +22,10 @@ class GCN(nn.Module):
 
 class Pool(nn.Module):
 
-    def __init__(self, k, in_dim, p, n_att):
+    def __init__(self, k, in_dim, p):
         super(Pool, self).__init__()
         self.k = k
-        self.n_att = n_att
+        self.n_att = 1
         self.sigmoid = nn.Sigmoid()
         self.proj = nn.Linear(in_dim, 1)
 
@@ -36,7 +36,6 @@ class Pool(nn.Module):
         self.drop = nn.Dropout(p=p) if p > 0 else nn.Identity()
 
     def forward(self, g, h):
-        # TODO : denormalize
         # graph augmentation A = (A+I)^2
         g = g.clone()
         num_nodes, _ = g.size()
@@ -89,15 +88,25 @@ def norm_g(g):
 
 
 class RefinedGraph(torch.nn.Module):
-    def __init__(self, alpha):
+    def __init__(self, input_dim, dim_hidden, alpha, metric='attention', n_att=1):
         super(RefinedGraph, self).__init__()
         self.act = act_map('softmax')
         self.alpha = alpha
+        self.metric = metric
+        if self.metric == 'identity': 
+            pass
+        elif self.metric == 'attention':
+            self.linear = nn.Linear(input_dim, dim_hidden, bias=False)
 
     def forward(self, g, h):
         h = F.normalize(h)
         g = norm_g(g)
-        new_g = torch.matmul(h, h.t())
+        if self.metric == 'identity':
+            new_g = torch.matmul(h, h.t())
+        elif self.metric == 'attention':
+            h_fc = torch.nn.functional.relu(self.linear(h))
+            h_fc = F.normalize(h_fc)
+            new_g = torch.matmul(h_fc, h_fc.t())
         # new_g = new_g - I
         num_nodes, _ = new_g.size()
         idx = torch.arange(num_nodes, dtype=torch.long, device=new_g.device)

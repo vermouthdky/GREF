@@ -3,5 +3,18 @@
   "python.linting.enabled": true,
   "python.linting.pylintEnabled": true,
   "debug.allowBreakpointsEverywhere": true,
-  "debug.console.closeOnEnd": true
+  "debug.console.closeOnEnd": true,
+  "editor.fontSize": 20,
+  "sync-rsync.exclude": [
+    ".git",
+    ".vscode",
+    ".idea",
+    "__pycache__"
+  ],
+  "sync-rsync.remote": "k.duan@datalab5.engr.tamu.edu:~/Gref/",
+  "sync-rsync.sites": [
+
+  ],
+  "sync-rsync.onSaveIndividual": true,
+  "sync-rsync.onSave": true
 }
