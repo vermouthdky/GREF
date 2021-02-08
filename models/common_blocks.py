@@ -22,10 +22,10 @@ class GCN(nn.Module):
 
 class Pool(nn.Module):
 
-    def __init__(self, k, in_dim, p, n_att):
+    def __init__(self, k, in_dim, p):
         super(Pool, self).__init__()
         self.k = k
-        self.n_att = n_att
+        self.n_att = 1
         self.sigmoid = nn.Sigmoid()
         self.proj = nn.Linear(in_dim, 1)
 
@@ -37,6 +37,7 @@ class Pool(nn.Module):
 
     def forward(self, g, h):
         # graph augmentation A = (A+I)^2
+        g = g.clone()
         num_nodes, _ = g.size()
         idx = torch.arange(num_nodes, dtype=torch.long, device=g.device)
         g[idx, idx] = 1
@@ -48,9 +49,7 @@ class Pool(nn.Module):
             weights = self.projs[i](Z).squeeze()
             scores.append(self.sigmoid(weights))
         score = torch.stack(scores, dim=0).sum(dim=0)
-        # Z = self.drop(h)
-        # weights = self.proj(Z).squeeze()
-        # scores = self.sigmoid(weights)
+
         return top_k_graph(score, g, h, self.k)
 
 
@@ -83,23 +82,40 @@ def top_k_graph(scores, g, h, k):
 def norm_g(g):
     degrees = torch.sum(g, 1)
     degrees = torch.unsqueeze(degrees, dim=-1)
+    degrees = F.threshold(degrees, 0, 1)
     g = g / degrees
     return g
 
 
 class RefinedGraph(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, input_dim, dim_hidden, alpha, metric='attention', n_att=1):
         super(RefinedGraph, self).__init__()
         self.act = act_map('softmax')
+        self.alpha = alpha
+        self.metric = metric
+        if self.metric == 'identity': 
+            pass
+        elif self.metric == 'attention':
+            self.linear = nn.Linear(input_dim, dim_hidden, bias=False)
 
     def forward(self, g, h):
         h = F.normalize(h)
         g = norm_g(g)
-        new_g = torch.matmul(h, h.t())
-        values, indices = torch.topk(new_g, k=5, dim=1)
-        new_g = torch.zeros_like(new_g).scatter_(1, indices, values)
-        new_g = self.act(new_g)
-        g = g.add(new_g)
+        if self.metric == 'identity':
+            new_g = torch.matmul(h, h.t())
+        elif self.metric == 'attention':
+            h_fc = torch.nn.functional.relu(self.linear(h))
+            h_fc = F.normalize(h_fc)
+            new_g = torch.matmul(h_fc, h_fc.t())
+        # new_g = new_g - I
+        num_nodes, _ = new_g.size()
+        idx = torch.arange(num_nodes, dtype=torch.long, device=new_g.device)
+        new_g[idx, idx] = 0
+        # topk
+        # values, indices = torch.topk(new_g, k=5, dim=1)
+        # new_g = torch.zeros_like(new_g).scatter_(1, indices, values)
+        new_g = norm_g(new_g)
+        g = g.add(new_g, alpha=self.alpha)
         g = norm_g(g)
         return g, new_g
 

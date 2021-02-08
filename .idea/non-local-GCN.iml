@@ -4,7 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/figures" />
     </content>
-    <orderEntry type="jdk" jdkName="Remote Python 3.7.6 (sftp://keyu@datalab3.engr.tamu.edu:22/home/keyu/anaconda3/envs/pytorch/bin/python)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.8.5 (sftp://k.duan@datalab5.engr.tamu.edu:22/home/grads/k/k.duan/anaconda3/envs/pytorch/bin/python)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PyDocumentationSettings">

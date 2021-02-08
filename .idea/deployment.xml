@@ -1,7 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="keyu@datalab3.engr.tamu.edu:22 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="k.duan@datalab5.engr.tamu.edu:22 agent" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
+      <paths name="intern@127.0.0.1:40075">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/intern/Karen_/NLGCN" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="k.duan@10.55.150.167:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/grads/k/k.duan/Gref" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="k.duan@datalab5.engr.tamu.edu:22">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/grads/k/k.duan/Gref_pycharm" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="k.duan@datalab5.engr.tamu.edu:22 agent">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/Gref" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="keyu@datalab3.engr.tamu.edu:22 password">
         <serverdata>
           <mappings>

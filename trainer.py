@@ -1,26 +1,64 @@
-import torch
 import os
-from models.GCN import GCN
-from models.GAT import GAT
-from models.NLGCN import NLGCN
-from torch_geometric.datasets import Planetoid
-from torch_geometric.datasets import PPI
-from torch_geometric.datasets import Coauthor
-
-from torch_geometric.data import DataLoader
-import torch_geometric.transforms as T
+#
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+import torch
 import torch.nn.functional as F
-import glob
-from torch_geometric.utils import remove_self_loops, add_self_loops
-import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
+import torch_geometric.transforms as T
 from sklearn import metrics
+from torch_geometric.data import DataLoader
+from torch_geometric.datasets import Coauthor
+from torch_geometric.datasets import PPI
+from torch_geometric.datasets import Planetoid
+from torch_geometric.utils import remove_self_loops, add_self_loops, dense_to_sparse
 
-import seaborn as sns
+from models.GAT import GAT
+from models.GCN import GCN
+from models.NLGCN import NLGCN
+from models.g_U_Net import gunet
+from models.JKNet import JKNetMaxpool
+from models.APPNP import APPNP
+from models.simpleGCN import simpleGCN
 
-from torch.utils.tensorboard import SummaryWriter
+import wandb
+# dataset attacking defense
+from deeprobust.graph.data import PrePtbDataset, Dataset
+from deeprobust.graph import utils
+from deeprobust.graph.global_attack import Random
+import numpy as np
 
+import ipdb
+
+def load_perterbued_data(dataset, ptb_rate, ptb_type="meta"):
+    if ptb_type == 'meta':
+        data = Dataset(root='/tmp/', name=dataset.lower(), setting='nettack', seed=15, require_mask=True)
+        data.x, data.y = data.features, data.labels
+        if ptb_rate > 0:
+            perturbed_data = PrePtbDataset(root='/tmp/', name=dataset.lower(), attack_method='meta', ptb_rate=ptb_rate)
+            data.edge_index = perturbed_data.adj
+        else:
+            data.edge_index = data.adj
+        return data
+
+    elif ptb_type == 'random_add':
+        data = Dataset(root='/tmp/', name=dataset.lower(), setting='nettack', seed=15, require_mask=True)
+        data.x, data.y = data.features, data.labels
+        num_edge = data.adj.sum(axis=None)/2
+        attacker = Random()
+        attacker.attack(data.adj, n_perturbations=int(ptb_rate*num_edge), type='add')
+        data.edge_index = attacker.modified_adj
+        return data
+
+    elif ptb_type == 'random_remove':
+        data = Dataset(root='/tmp/', name=dataset.lower(), setting='nettack', seed=15, require_mask=True)
+        data.x, data.y = data.features, data.labels
+        num_edge = data.adj.sum(axis=None)/2
+        attacker = Random()
+        attacker.attack(data.adj, n_perturbations=int(ptb_rate*num_edge), type='remove')
+        data.edge_index = attacker.modified_adj
+        return data
+    
+    raise Exception(f"the ptb_type of {ptb_type} has not been implemented")
 
 def load_data(dataset="Cora"):
     path = os.path.join(
@@ -57,9 +95,6 @@ def load_data(dataset="Cora"):
         for i in range(15):  # number of labels
             index = (data.y == i).nonzero()[:, 0]
             perm = torch.randperm(index.size(0))
-            # print(index[perm[:train_num]])
-            # print(perm[train_num:(train_num+val_num)])
-            # print(index[perm[(train_num+val_num):]])
             train_mask[index[perm[:train_num]]] = 1
             val_mask[index[perm[train_num: (train_num + val_num)]]] = 1
             test_mask[index[perm[(train_num + val_num):]]] = 1
@@ -96,8 +131,12 @@ class trainer(object):
         self.device = torch.device(
             f"cuda:{args.cuda_num}" if args.cuda else "cpu")
         if self.dataset in ["Cora", "Citeseer", "Pubmed", "CoauthorCS"]:
-            self.data = load_data(self.dataset)
-            self.loss_fn = torch.nn.functional.nll_loss
+            if args.ptb:
+                self.data = load_perterbued_data(self.dataset, args.ptb_rate, args.ptb_type)
+                self.loss_fn = torch.nn.functional.nll_loss
+            else:
+                self.data = load_data(self.dataset)
+                self.loss_fn = torch.nn.functional.nll_loss
         elif self.dataset in ["PPI"]:
             self.data = load_ppi_data()
             self.loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -111,8 +150,14 @@ class trainer(object):
         self.epochs = args.epochs
         self.weight_decay = args.weight_decay
         self.alpha = args.alpha
+        self.gamma = args.gamma
+        self.beta = args.beta
         self.lamb = args.lamb
         self.num_classes = args.num_classes
+        self.ptb_rate = args.ptb_rate
+        self.ptb_type = args.ptb_type
+        self.metric = args.metric
+        self.num_layers = args.num_layers
 
         if self.type_model == "GCN":
             self.model = GCN(args)
@@ -120,18 +165,31 @@ class trainer(object):
             self.model = GAT(args)
         elif self.type_model == "NLGCN":
             self.model = NLGCN(args)
+        elif self.type_model == "g_U_Net":
+            self.model = gunet(args)
+        elif self.type_model == "JKNet":
+            self.model = JKNetMaxpool(args)
+        elif self.type_model == "SGC":
+            self.model = simpleGCN(args)
+        elif self.type_model == "APPNP":
+            self.model = APPNP(args)
         else:
             raise Exception(
                 f"the model of {self.type_model} has not been implemented")
 
         if self.dataset in ["Cora", "Citeseer", "Pubmed", "CoauthorCS"]:
-            self.data.to(self.device)
+            if args.ptb:
+                self.data.edge_index, self.data.x, self.data.y = utils.preprocess(self.data.edge_index, self.data.x, self.data.y, preprocess_adj=False, sparse=False, device=self.device)
+
+            else:
+                self.data.to(self.device)
         self.model.to(self.device)
 
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        self.writer = SummaryWriter("runs/NLGCN")
 
+        wandb.init(project="Gref", config=args)
+        wandb.watch(self.model)
     def train_net(self, epoch):
         # try:
         loss_train = self.run_trainSet(epoch)
@@ -140,23 +198,29 @@ class trainer(object):
 
     def train(self):
         best_acc = 0
+        the_loss = 999
         for epoch in range(self.epochs):
             loss_train, acc_train, acc_valid, acc_test = self.train_net(epoch)
             print("Epoch: {:02d}, Loss: {:.4f}, val_acc: {:.4f}, test_acc:{:.4f}".format(
                 epoch, loss_train, acc_valid, acc_test))
 
-            if epoch % 5 == 4:
-                self.writer.add_scalar("Loss/train", loss_train, epoch)
-                self.writer.add_scalar("Accuracy/train", acc_train, epoch)
-                self.writer.add_scalar("Accuracy/test", acc_test, epoch)
+            wandb.log({"epoch": epoch, 'loss':loss_train, 'val_acc':acc_valid, 'test_acc':acc_test})
 
+            # if self.dataset == 'Pubmed':
+            #     if best_acc < acc_valid and loss_train < 0.2:
+            #         best_acc = acc_valid
+            #         the_loss = loss_train
+            #         self.model.cpu()
+            #         self.save_model(self.type_model, self.dataset)
+            #         self.model.to(self.device)
+            # else:
             if best_acc < acc_valid:
                 best_acc = acc_valid
+                the_loss = loss_train
                 self.model.cpu()
                 self.save_model(self.type_model, self.dataset)
                 self.model.to(self.device)
 
-        self.writer.close()
         self.log = self.load_log(
             type_model=self.type_model, dataset=self.dataset, load=True)
         state_dict = self.load_model(self.type_model, self.dataset)
@@ -173,41 +237,37 @@ class trainer(object):
         self.log["acc_valid"][-1].append(acc_valid)
         self.log["acc_test"][-1].append(acc_test)
 
-        self.log["alpha"][-1].append(self.alpha)
+        self.log["ptb"][-1].append(self.ptb_rate)
 
         self.save_log(self.log, self.type_model, self.dataset)
 
     def run_trainSet(self, epoch):
         self.model.train()
         loss = 0.0
+        # ipdb.set_trace()
         if self.dataset in ["Cora", "Citeseer", "Pubmed", "CoauthorCS"]:
             if self.type_model == "NLGCN":
                 logits, new_gs, new_hs, gs = self.model(self.data.x, self.data.edge_index)
                 logits = F.log_softmax(logits[self.data.train_mask], 1)
+                
                 loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
                 # graph regularization
-                # for new_h, new_g in zip(new_hs, new_gs):
-                #     d = new_h.size()[1]
-                #     loss += 1/(d^2)*torch.trace(torch.chain_matmul(new_h.t(), torch.diag(torch.sum(new_g, dim=1))-new_g, new_h))
+                for new_h, new_g in zip(new_hs, new_gs):
+                    n = new_h.size()[0]
+                    d = new_h.size()[1]
+                    D = torch.diag(torch.sum(new_g, dim=1))
+                    # deg_inv_sqrt = new_g.sum(dim=-1).clamp(min=1).pow(-0.5)
+                    # L = deg_inv_sqrt.unsqueeze(-1) * (D-new_g) * deg_inv_sqrt.unsqueeze(-2)
+                    L = D - new_g
+                    loss += self.lamb / (d ^ 2) * torch.trace(
+                        torch.chain_matmul(new_h.t(), L, new_h))
+                    # loss += -self.beta * torch.sum(torch.log(torch.sum(new_g, dim=1))) / n
+                    loss += self.gamma * torch.norm(new_g) / (n ^ 2)
+                    # loss += self.beta * torch.norm(new_g, p=1) / (n ^ 2)
 
-                if epoch % 200 == 199:
-                    for i, adj_new in enumerate(new_gs):
-                        heat_map = sns.heatmap(adj_new.cpu().detach().numpy())
-                        fig = heat_map.get_figure()
-                        fig.savefig(self.figurename(f"adj_new{epoch}_{i}.png"))
-                        plt.clf()
-
-                    for i, g in enumerate(gs):
-                        heat_map = sns.heatmap(g.cpu().detach().numpy())
-                        fig = heat_map.get_figure()
-                        fig.savefig(self.figurename(f"adj{epoch}_{i}.png"))
-                        plt.clf()
-
-                if epoch == 998:
-                    pass
             else:
-                logits, adj = self.model(self.data.x, self.data.edge_index)
+                logits = self.model(self.data.x, self.data.edge_index)
                 logits = F.log_softmax(logits[self.data.train_mask], 1)
                 loss = self.loss_fn(logits, self.data.y[self.data.train_mask])
 
@@ -219,9 +279,22 @@ class trainer(object):
                     data.edge_index, num_nodes=num_nodes)
                 if isinstance(data.edge_index, tuple):
                     data.edge_index = data.edge_index[0]
-                logits = self.model(data.x.to(self.device), data.edge_index.to(self.device))
+                logits, new_gs, new_hs, gs = self.model(data.x.to(self.device), data.edge_index.to(self.device))
                 loss += self.loss_fn(logits, data.y.to(self.device))
-            raise Exception(f"the dataset of {self.dataset} has not been implemented")
+
+                # graph regularization
+                for new_h, new_g in zip(new_hs, new_gs):
+                    n = new_h.size()[0]
+                    d = new_h.size()[1]
+                    D = torch.diag(torch.sum(new_g, dim=1))
+                    # deg_inv_sqrt = new_g.sum(dim=-1).clamp(min=1).pow(-0.5)
+                    # L = deg_inv_sqrt.unsqueeze(-1) * (D-new_g) * deg_inv_sqrt.unsqueeze(-2)
+                    L = D - new_g
+                    loss += self.lamb / (d ^ 2) * torch.trace(
+                        torch.chain_matmul(new_h.t(), L, new_h))
+                    # loss += -self.beta * torch.sum(torch.log(torch.sum(new_g, dim=1))) / n
+                    loss += self.gamma * torch.norm(new_g) / (n ^ 2)
+        # raise Exception(f"the dataset of {self.dataset} has not been implemented")
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -233,12 +306,20 @@ class trainer(object):
         self.model.eval()
         # torch.cuda.empty_cache()
         if self.dataset in ["Cora", "Citeseer", "Pubmed", "CoauthorCS"]:
-            with torch.no_grad():
-                logits, _, _, _ = self.model(self.data.x, self.data.edge_index)
-            logits = F.log_softmax(logits, 1)
-            acc_train = evaluate(logits, self.data.y, self.data.train_mask)
-            acc_valid = evaluate(logits, self.data.y, self.data.val_mask)
-            acc_test = evaluate(logits, self.data.y, self.data.test_mask)
+            if self.type_model == 'NLGCN':
+                with torch.no_grad():
+                    logits, _, _, _ = self.model(self.data.x, self.data.edge_index)
+                logits = F.log_softmax(logits, 1)
+                acc_train = evaluate(logits, self.data.y, self.data.train_mask)
+                acc_valid = evaluate(logits, self.data.y, self.data.val_mask)
+                acc_test = evaluate(logits, self.data.y, self.data.test_mask)
+            else:
+                with torch.no_grad():
+                    logits = self.model(self.data.x, self.data.edge_index)
+                logits = F.log_softmax(logits, 1)
+                acc_train = evaluate(logits, self.data.y, self.data.train_mask)
+                acc_valid = evaluate(logits, self.data.y, self.data.val_mask)
+                acc_test = evaluate(logits, self.data.y, self.data.test_mask)
             return acc_train, acc_valid, acc_test
         elif self.dataset in ["PPI"]:
             accs = [0.0, 0.0, 0.0]
@@ -253,7 +334,7 @@ class trainer(object):
                     if isinstance(data.edge_index, tuple):
                         data.edge_index = data.edge_index[0]
                     with torch.no_grad():
-                        logits = self.model(
+                        logits, _, _, _ = self.model(
                             data.x.to(self.device), data.edge_index.to(
                                 self.device)
                         )
@@ -290,10 +371,9 @@ class trainer(object):
         if not os.path.exists(filedir):
             os.makedirs(filedir)
 
-        alpha = str(self.model.alpha)
-        num_layers = int(self.model.num_layers)
+        layers = self.num_layers
 
-        filename = f"{filetype}_{type_model}" f"L{num_layers}Alpha{alpha}.pth.tar"
+        filename = f"{filetype}_{type_model}" f"layers{layers}.pth.tar"
 
         filename = os.path.join(filedir, filename)
         return filename
@@ -317,8 +397,7 @@ class trainer(object):
 
         if len(log) == 0:
             log["acc_train"], log["acc_valid"], log["acc_test"] = [], [], []
-            log["alpha"] = []
-            log["L"] = []
+            log["ptb"] = []
 
         for key in log.keys():
             if len(log[key]) == 0:
@@ -334,6 +413,7 @@ class trainer(object):
             filetype="logs", type_model=type_model, dataset=dataset)
         torch.save(log, filename)
         print("save log to", filename)
+
 
     def plot_test_accuracy(self):
         pass

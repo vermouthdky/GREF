@@ -5,10 +5,10 @@ from torch_geometric.utils import to_dense_adj
 from models.common_blocks import act_map, Pool, Unpool, GCN, RefinedGraph
 
 
-class NLGCN(nn.Module):
+class gunet(nn.Module):
     def __init__(self, args):
         # def __init__(self, ks, in_dim, out_dim, dim, act, drop_p):
-        super(NLGCN, self).__init__()
+        super(gunet, self).__init__()
         self.alpha = args.alpha
         self.ks = args.ks
         self.n_att = args.n_att
@@ -45,7 +45,7 @@ class NLGCN(nn.Module):
         for i in range(self.l_n):
             self.pools.append(Pool(self.ks[i], self.dim_hidden, self.dropout_c))
             self.unpools.append(Unpool(self.dim_hidden, self.dim_hidden, self.dropout_c))
-            self.refined_pooling_graphs.append(RefinedGraph(self.dim_hidden, self.dim_hidden, self.alpha, self.metric))
+
         # out GCN
         # self.out_l_1 = nn.Linear(self.dim_hidden, self.dim_hidden)
         # self.out_l_2 = nn.Linear(self.dim_hidden, self.num_classes)
@@ -61,13 +61,6 @@ class NLGCN(nn.Module):
         # h = self.s_gcn(g, h)
         h = torch.squeeze(h)
         h = self.g_unet_forward(g, h)
-        # classify
-        # h = self.out_drop(h)
-        # h = self.out_l_1(h)
-        # h = self.c_act(h)
-        # h = self.out_drop(h)
-        # h = self.out_gcn(g, h)
-        # h = self.gunet(h, g)
 
         return h
 
@@ -85,10 +78,7 @@ class NLGCN(nn.Module):
             down_outs.append(h)
             g, h, idx = self.pools[i](g, h)
             indices_list.append(idx)
-            g, new_g = self.refined_pooling_graphs[i](g, h)
-            new_gs.append(new_g)
             gs.append(g)
-            new_hs.append(h)
 
         h = self.bottom_gcn(g, h)
 
@@ -99,4 +89,4 @@ class NLGCN(nn.Module):
             h = h.add(down_outs[up_idx])  # residual connection
             h = self.up_gcns[i](g, h)
 
-        return h, new_gs, new_hs, gs
+        return h

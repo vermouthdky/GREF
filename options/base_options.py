@@ -104,7 +104,7 @@ class BaseOptions():
                             help='time interval to save model parameter')
 
         # build up the supernet hyperparameter
-        parser.add_argument('--type_model', type=str, default="GCN")
+        parser.add_argument('--type_model', type=str, default="NLGCN")
         parser.add_argument('--num_layers', type=int, default=4)
         parser.add_argument('--batch_size', type=int, default=64)
         parser.add_argument("--epochs", type=int, default=500, help="number of training the one shot model")
@@ -114,7 +114,7 @@ class BaseOptions():
         parser.add_argument("--lr", type=float, default=0.005, help="learning rate")
         parser.add_argument('--weight_decay', type=float, default=5e-4)  # 5e-4
         parser.add_argument('--grad_clip', type=float, default=0.0)
-        parser.add_argument('--dim_hidden', type=int, default=32)
+        parser.add_argument('--dim_hidden', type=int, default=64)
         parser.add_argument('--auto_continue', type=bool, default=False)
         parser.add_argument('--transductive', type=bool, default=True)
         parser.add_argument('--activation', type=str, default="relu", required=False)
@@ -123,13 +123,26 @@ class BaseOptions():
         parser.add_argument('--early_stop', default=True, action="store_true")
         parser.add_argument('--num_neighbors', type=float, default=1.0)
         parser.add_argument('--threshold', type=float, default=0.6)
-        parser.add_argument('--alpha', type=float, default=1.0)
         parser.add_argument('--temperature', type=float, default=1e-6,
                             help='temperature for sigmoid in adj matrix sparsification')
-        parser.add_argument('--lamb', type=float, default=2.0, help='limit the entropy loss')
         parser.add_argument('--ks', type=float, nargs='+', default=[0.5, 0.5, 0.5, 0.5])
         parser.add_argument('--n_att', type=int, default=1, help='the number of multi attention strategy')
-        # parser.add_argument('--ks', type=int, nargs='+', default=[2000, 1000, 500, 200])
+
+        parser.add_argument('--alpha', type=float, default=2)
+        parser.add_argument('--lamb', type=float, default=0.0005)
+        parser.add_argument('--gamma', type=float, default=0.001)
+        parser.add_argument('--beta', type=float, default=0)
+
+        parser.add_argument('--ptb_rate', type=float, default=0)
+        parser.add_argument('--ptb', type=bool, default=False)
+        parser.add_argument('--ptb_type', type=str, default='meta')
+
+        parser.add_argument('--metric', type=str, default='attention')
+
+        parser.add_argument('--adj_dropout', type=float, default=0.5,
+                            help="dropout rate in APPNP")  # 5e-4
+        parser.add_argument('--dropout', type=float, default=0.6)
+        parser.add_argument('--type_norm', type=str, default="None")
         args = parser.parse_args()
         args = self.reset_model_parameter(args)
         return args
@@ -138,33 +151,63 @@ class BaseOptions():
         if args.dataset == 'PPI':
             args.num_feats = 50
             args.num_classes = 121
-            args.dropout_c = 0
+            args.dropout_c = 0.9
             args.weight_decay = 0
-            args.lr = 0.005
+            args.lr = 0.05
             args.residual = False
             args.batch_normal = False
             args.multi_label = True
             args.transductive = False
+
+            args.alpha = 1
+            args.lamb = 0.0005
+            args.gamma = 0.001
+            args.beta = 0
+
         elif args.dataset == 'Cora':
             args.num_feats = 1433
             args.num_classes = 7
             args.dropout_c = 0.9  # 0.5
             args.lr = 0.005  # 0.005
             args.multi_label = False
+
+            args.alpha = 1
+            args.lamb = 0.02
+            args.gamma = 0.04
+            args.beta = 0.0
+
+            args.ks = [0.5, 0.5, 0.5, 0.5]
+
         elif args.dataset == 'Citeseer':
             args.num_feats = 3703
             args.num_classes = 6
-            args.dropout_c = 0.6
-            args.weight_decay = 5e-5
+            args.dropout_c = 0.9
+            args.weight_decay = 5e-4 #5e-4
             args.lr = 0.005
             args.multi_label = False
+
+            args.alpha = 0.6
+            args.lamb = 0.0001
+            args.gamma = 0.0
+            args.beta = 0.0
+
+            args.ks = [0.6, 0.5, 0.5, 0.4]
+
         elif args.dataset == 'Pubmed':
             args.num_feats = 500
             args.num_classes = 3
-            args.dropout_c = 0.6
+            args.dropout_c = 0.5
             args.weight_decay = 1e-3
             args.lr = 0.01
             args.multi_label = False
+
+            args.alpha = 5
+            args.lamb = 0.4
+            args.gamma = 0.0
+            args.beta = 0.0
+
+            args.ks = [0.1, 0.5, 0.5, 0.4]
+
         elif args.dataset == 'Reddit':
             args.num_feats = 602
             args.num_classes = 41
@@ -172,6 +215,7 @@ class BaseOptions():
             args.weight_decay = 0.
             args.lr = 0.005
             args.multi_label = False
+
         elif args.dataset == 'CoauthorCS':
             args.num_feats = 6805
             args.num_classes = 15
